@@ -15,6 +15,7 @@
 #   hubot list standups - See all standups for this room
 #   hubot list standups in every room - See all standups in every room
 #   hubot delete hh:mm standup - If you have a standup at hh:mm, deletes it
+#   hubot delete hh:mm UTC+2 standup - If you have a standup at hh:mm UTC+2, deletes it
 #   hubot delete all standups - Deletes all standups for this room.
 #
 # Dependencies:
@@ -26,10 +27,16 @@
 cronJob = require('cron').CronJob
 _ = require('underscore')
 
+formatUTCTime = (standup) ->
+  if standup.utc
+    standup.time + ' UTC' + standup.utc
+  else
+    standup.time
+
 module.exports = (robot) ->
+
   # Compares current time to the time of the standup
   # to see if it should be fired.
-
   standupShouldFire = (standup) ->
     standupTime = standup.time
     utc = standup.utc
@@ -110,11 +117,12 @@ module.exports = (robot) ->
     updateBrain standupsToKeep
     standups.length - (standupsToKeep.length)
 
-  clearSpecificStandupForRoom = (room, time) ->
+  clearSpecificStandupForRoom = (room, time, utc) ->
     standups = getStandups()
     standupsToKeep = _.reject(standups,
       room: room
-      time: time)
+      time: time
+      utc: utc)
     updateBrain standupsToKeep
     standups.length - (standupsToKeep.length)
 
@@ -145,21 +153,26 @@ module.exports = (robot) ->
     standupsCleared = clearAllStandupsForRoom(findRoom(msg))
     msg.send 'Deleted ' + standupsCleared + ' standup' + (if standupsCleared == 1 then '' else 's') + '. No more standups for you.'
     return
-  robot.respond /delete ([0-5]?[0-9]:[0-5]?[0-9]) standup/i, (msg) ->
+
+  robot.respond /delete ([0-5]?[0-9]:[0-5]?[0-9])(?: UTC([+-](?:[0-9]|1[0-3])))? standup/i, (msg) ->
     time = msg.match[1]
-    standupsCleared = clearSpecificStandupForRoom(findRoom(msg), time)
+    utc = msg.match[2]
+    standupsCleared = clearSpecificStandupForRoom(findRoom(msg), time, utc)
+
     if standupsCleared == 0
-      msg.send 'Nice try. You don\'t even have a standup at ' + time
+      msg.send 'Nice try. You don\'t even have a standup at ' + formatUTCTime({time: time, utc: utc})
     else
-      msg.send 'Deleted your ' + time + ' standup.'
+      msg.send 'Deleted your ' + formatUTCTime({time: time, utc: utc}) + ' standup.'
     return
+
   robot.respond /create standup ((?:[01]?[0-9]|2[0-4]):[0-5]?[0-9])$/i, (msg) ->
     time = msg.match[1]
     room = findRoom(msg)
     saveStandup room, time
     msg.send 'Ok, from now on I\'ll remind this room to do a standup every weekday at ' + time
     return
-  robot.respond /create standup ((?:[01]?[0-9]|2[0-4]):[0-5]?[0-9]) UTC([+-]([0-9]|1[0-3]))$/i, (msg) ->
+
+  robot.respond /create standup ((?:[01]?[0-9]|2[0-4]):[0-5]?[0-9]) UTC([+-](?:[0-9]|1[0-3]))$/i, (msg) ->
     time = msg.match[1]
     utc = msg.match[2]
     room = findRoom(msg)
@@ -171,12 +184,7 @@ module.exports = (robot) ->
     if standups.length == 0
       msg.send 'Well this is awkward. You haven\'t got any standups set :-/'
     else
-      standupsText = [ 'Here\'s your standups:' ].concat(_.map(standups, (standup) ->
-        if standup.utc
-          standup.time + ' UTC' + standup.utc
-        else
-          standup.time
-      ))
+      standupsText = [ 'Here\'s your standups:' ].concat(_.map(standups, formatUTCTime))
       msg.send standupsText.join('\n')
     return
   robot.respond /list standups in every room/i, (msg) ->
@@ -185,7 +193,7 @@ module.exports = (robot) ->
       msg.send 'No, because there aren\'t any.'
     else
       standupsText = [ 'Here\'s the standups for every room:' ].concat(_.map(standups, (standup) ->
-        'Room: ' + standup.room + ', Time: ' + standup.time
+        'Room: ' + standup.room + ', Time: ' + formatUTCTime(standup)
       ))
       msg.send standupsText.join('\n')
     return
